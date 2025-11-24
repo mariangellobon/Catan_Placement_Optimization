@@ -7,8 +7,7 @@ Initializes a random board, runs the solver, and displays results.
 import sys
 from board import Board
 from solver import Solver
-from visualization import visualize_board, visualize_settlements_simple
-from visualization_gui import visualize_board_gui, visualize_settlements_detailed
+from visualization_gui import visualize_board_gui
 
 
 def main():
