@@ -68,15 +68,31 @@ class Board:
         50: [44, 51, 53], 51: [47, 50], 52: [46, 53], 53: [50, 52]
     }
     
-    def __init__(self, seed: Optional[int] = None):
+    def __init__(self, seed: Optional[int] = None, num_players: int = 4,
+                 quality_weights: Optional[Dict[str, float]] = None):
         """
         Initialize a random Catan board.
         
         Args:
             seed: Random seed for reproducibility
+            num_players: Number of players (default: 4)
+            quality_weights: Dictionary with keys 'w_resources', 'w_expected_cards', 'w_prob_at_least_one'
+                           If None, uses default values (1/3 each)
         """
         if seed is not None:
             random.seed(seed)
+        
+        self.num_players = num_players
+        
+        # Set quality weights
+        if quality_weights is None:
+            self.quality_weights = {
+                'w_resources': 1/3,
+                'w_expected_cards': 1/3,
+                'w_prob_at_least_one': 1/3
+            }
+        else:
+            self.quality_weights = quality_weights
         
         # Initialize dice probabilities
         self.dice_probabilities = self._compute_dice_probabilities()
@@ -209,7 +225,12 @@ class Board:
         
         for vertex in self.vertices:
             vertices_list = [vertex]
-            quality = compute_quality(vertices_list, self)
+            quality = compute_quality(
+                vertices_list, self,
+                w_resources=self.quality_weights['w_resources'],
+                w_expected_cards=self.quality_weights['w_expected_cards'],
+                w_prob_at_least_one=self.quality_weights['w_prob_at_least_one']
+            )
             single_quality[vertex] = quality
         
         return single_quality
@@ -225,8 +246,7 @@ class Board:
         # (in the future, we could have player-specific preferences)
         pair_quality = {}
         
-        num_players = 4
-        for player in range(1, num_players + 1):
+        for player in range(1, self.num_players + 1):
             pair_quality[player] = {}
             for v1 in self.vertices:
                 pair_quality[player][v1] = {}
@@ -235,7 +255,12 @@ class Board:
                         pair_quality[player][v1][v2] = -float('inf')
                     else:
                         vertices_list = [v1, v2]
-                        quality = compute_quality(vertices_list, self)
+                        quality = compute_quality(
+                            vertices_list, self,
+                            w_resources=self.quality_weights['w_resources'],
+                            w_expected_cards=self.quality_weights['w_expected_cards'],
+                            w_prob_at_least_one=self.quality_weights['w_prob_at_least_one']
+                        )
                         pair_quality[player][v1][v2] = quality
         
         return pair_quality

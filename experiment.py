@@ -17,6 +17,7 @@ from solver import Solver
 class ExperimentSolver(Solver):
     """
     Extension of Solver to allow different pruning modalities.
+    Uses the parent Solver's dfs method with configurable pruning options.
     """
     
     def __init__(self, board: Board, enable_feasibility: bool = True,
@@ -30,172 +31,14 @@ class ExperimentSolver(Solver):
             enable_upper_bound: Enable upper bound pruning
             enable_memo: Enable memoization
         """
-        self.board = board
-        self.enable_feasibility = enable_feasibility
-        self.enable_upper_bound = enable_upper_bound
-        self.enable_memo = enable_memo
-        
-        # Metrics
-        self.recursive_calls = 0
-        self.feasibility_prunings = 0
-        self.upper_bound_prunings = 0
-        self.memo_hits = 0
-        self.memo_misses = 0
-        self.start_time = None
-        self.end_time = None
-        
-        # Memo (only if enabled)
-        self.memo = {} if enable_memo else None
+        # Call parent constructor with configurable pruning options
+        super().__init__(board, enable_pruning=True,
+                        enable_feasibility=enable_feasibility,
+                        enable_upper_bound=enable_upper_bound,
+                        enable_memo=enable_memo)
     
-    def dfs(self, player: int, state):
-        """DFS with configurable pruning."""
-        self.recursive_calls += 1
-        
-        # Base case
-        if player > 4:
-            return state
-        
-        # Memoization (if enabled)
-        if self.enable_memo:
-            state_key = state.make_key()
-            memo_key = (player, state_key)
-            
-            if memo_key in self.memo:
-                self.memo_hits += 1
-                # Return memoized value (we still need to explore, but can use for pruning)
-            else:
-                self.memo_misses += 1
-        
-        # Local lower bound
-        best_value = -float('inf')
-        best_state_for_player = None
-        
-        # Get feasible positions
-        first_candidates = state.get_feasible_positions(player)
-        
-        if not first_candidates:
-            if self.enable_memo:
-                memo_key = (player, state.make_key())
-                self.memo[memo_key] = -float('inf')
-            return None
-        
-        # Sort candidates by upper bound or quality (if upper bound enabled)
-        candidate_ubs = {}
-        
-        if self.enable_upper_bound:
-            # Sort by upper bound
-            candidates_with_ub = []
-            for pos in first_candidates:
-                if state.is_feasible(player, pos):
-                    ub = state.upper_bound_for_player_given_first(player, pos)
-                    candidate_ubs[pos] = ub
-                    candidates_with_ub.append((ub, pos))
-            
-            candidates_with_ub.sort(reverse=True, key=lambda x: x[0])
-            first_candidates = [pos for _, pos in candidates_with_ub]
-        else:
-            # Sort by single quality
-            candidates_with_quality = []
-            for pos in first_candidates:
-                if state.is_feasible(player, pos):
-                    quality = state.board.single_quality.get(pos, 0.0)
-                    candidates_with_quality.append((quality, pos))
-            
-            candidates_with_quality.sort(reverse=True, key=lambda x: x[0])
-            first_candidates = [pos for _, pos in candidates_with_quality]
-        
-        # Try each candidate
-        for first_pos in first_candidates:
-            # Feasibility pruning
-            if not state.is_feasible(player, first_pos):
-                if self.enable_feasibility:
-                    self.feasibility_prunings += 1
-                continue
-            
-            # Upper bound pruning
-            if self.enable_upper_bound:
-                UB = candidate_ubs.get(first_pos,
-                                      state.upper_bound_for_player_given_first(player, first_pos))
-                if UB <= best_value:
-                    self.upper_bound_prunings += 1
-                    continue
-            
-            # Place first settlement
-            s1 = state.clone()
-            s1.place_settlement(player, first_pos)
-            
-            # Recurse
-            s2 = self.dfs(player + 1, s1)
-            if s2 is None:
-                continue
-            
-            # Place second settlement
-            second_candidates = s2.get_feasible_positions(player)
-            second_candidates = [v for v in second_candidates if v != first_pos]
-            
-            if not second_candidates:
-                continue
-            
-            # Pick best second position
-            best_second_pos = None
-            best_two_house_value = -float('inf')
-            
-            for second_pos in second_candidates:
-                val = s2.pair_quality(player, first_pos, second_pos)
-                if val > best_two_house_value:
-                    best_two_house_value = val
-                    best_second_pos = second_pos
-            
-            if best_second_pos is None:
-                continue
-            
-            s_final = s2.clone()
-            s_final.place_settlement(player, best_second_pos)
-            
-            branch_value = best_two_house_value
-            
-            if branch_value > best_value:
-                best_value = branch_value
-                best_state_for_player = s_final
-        
-        # Store in memo (if enabled)
-        if self.enable_memo:
-            memo_key = (player, state.make_key())
-            self.memo[memo_key] = best_value
-        
-        return best_state_for_player
-    
-    def solve(self):
-        """Solve with metrics tracking."""
-        # Reset metrics
-        self.recursive_calls = 0
-        self.feasibility_prunings = 0
-        self.upper_bound_prunings = 0
-        self.memo_hits = 0
-        self.memo_misses = 0
-        if self.enable_memo:
-            self.memo.clear()
-        
-        # Start timer
-        self.start_time = time.time()
-        
-        from state import State
-        initial_state = State(self.board)
-        final_state = self.dfs(player=1, state=initial_state)
-        
-        # End timer
-        self.end_time = time.time()
-        
-        if final_state is None:
-            return None, None, None
-        
-        if len(final_state.houses[1]) != 2:
-            return final_state, None, None
-        
-        first_pos, second_pos = final_state.houses[1]
-        p1_quality = final_state.quality_of_player(1)
-        
-        return final_state, (first_pos, second_pos), p1_quality
+    # solve() method is inherited from Solver, no need to override
+    # It already tracks metrics and timing
     
     def get_elapsed_time(self):
         """Get elapsed time in seconds."""
@@ -204,13 +47,16 @@ class ExperimentSolver(Solver):
         return 0.0
 
 
-def run_experiment(num_boards=10, time_limit=25.0):
+def run_experiment(num_boards=10, time_limit=25.0, modalities_to_test=None,
+                  num_players=4, quality_weights=None):
     """
     Run experiment comparing different pruning modalities.
     
     Args:
         num_boards: Number of different boards to test
         time_limit: Maximum time per execution in seconds
+        modalities_to_test: List of modality indices to test (0=feasibility only, 1=feasibility+memo, 2=all)
+                          If None, tests all 3 modalities
     """
     print("=" * 80)
     print("EXPERIMENT: Comparison of Pruning Modalities")
@@ -222,7 +68,7 @@ def run_experiment(num_boards=10, time_limit=25.0):
     # Modalities to test
     modalities = [
         {
-            'name': 'Solo Feasibility Pruning',
+            'name': 'Feasibility Pruning Only',
             'feasibility': True,
             'upper_bound': False,
             'memo': False
@@ -241,12 +87,25 @@ def run_experiment(num_boards=10, time_limit=25.0):
         }
     ]
     
+    # Filter modalities if specified
+    if modalities_to_test is not None:
+        selected_modalities = [modalities[i] for i in modalities_to_test if 0 <= i < len(modalities)]
+        if not selected_modalities:
+            print(f"Warning: No valid modalities selected. Using all modalities.")
+            selected_modalities = modalities
+        modalities = selected_modalities
+    
     # FIRST: Generate all boards
     print("Generating boards...")
+    print(f"  Configuration: {num_players} players")
+    if quality_weights:
+        print(f"  Quality weights: resources={quality_weights['w_resources']:.3f}, "
+              f"expected_cards={quality_weights['w_expected_cards']:.3f}, "
+              f"prob_at_least_one={quality_weights['w_prob_at_least_one']:.3f}")
     boards = []
     for board_num in range(num_boards):
         seed = board_num  # Use board number as seed for reproducibility
-        board = Board(seed=seed)
+        board = Board(seed=seed, num_players=num_players, quality_weights=quality_weights)
         boards.append(board)
         print(f"  Board {board_num} generated (seed={seed})")
     print()
@@ -262,6 +121,7 @@ def run_experiment(num_boards=10, time_limit=25.0):
         times = []
         timeouts = 0
         successful = 0
+        solutions = []  # Store solutions for comparison: (positions, quality)
         
         for board_num, board in enumerate(boards):
             try:
@@ -313,7 +173,17 @@ def run_experiment(num_boards=10, time_limit=25.0):
                 
                 times.append(elapsed)
                 successful += 1
+                
+                # Store solution for comparison
+                solutions.append({
+                    'board_num': board_num,
+                    'positions': positions,
+                    'quality': quality,
+                    'final_state': final_state
+                })
+                
                 print(f"  Board {board_num}: {elapsed:.4f}s - "
+                      f"Positions: {positions}, Quality: {quality:.4f} - "
                       f"Recursive calls: {solver.recursive_calls:,}, "
                       f"Prunings: {solver.feasibility_prunings + solver.upper_bound_prunings:,}")
                 
@@ -338,7 +208,8 @@ def run_experiment(num_boards=10, time_limit=25.0):
             'max_time': max_time,
             'timeouts': timeouts,
             'successful': successful,
-            'total': num_boards
+            'total': num_boards,
+            'solutions': solutions  # Store solutions for comparison
         }
         
         print(f"\n  Summary:")
@@ -375,13 +246,94 @@ def run_experiment(num_boards=10, time_limit=25.0):
     
     print()
     
-    # Calculate speedup
+    # Compare solutions across modalities
     if len(results) >= 2:
+        print("=" * 80)
+        print("SOLUTION COMPARISON")
+        print("=" * 80)
+        print()
+        
+        # Get all modality names
+        modality_names = list(results.keys())
+        
+        # Compare solutions board by board
+        all_boards_same = True
+        quality_differences = []
+        
+        # Find common boards (boards that were solved by all modalities)
+        all_solutions = {}
+        for mod_name, result in results.items():
+            for sol in result['solutions']:
+                board_num = sol['board_num']
+                if board_num not in all_solutions:
+                    all_solutions[board_num] = {}
+                all_solutions[board_num][mod_name] = sol
+        
+        # Compare each board
+        for board_num in sorted(all_solutions.keys()):
+            board_solutions = all_solutions[board_num]
+            
+            # Check if all modalities solved this board
+            if len(board_solutions) < len(modality_names):
+                continue  # Skip if not all modalities solved it
+            
+            # Get first modality as reference
+            ref_mod = modality_names[0]
+            ref_sol = board_solutions[ref_mod]
+            ref_positions = ref_sol['positions']
+            ref_quality = ref_sol['quality']
+            
+            # Compare with other modalities
+            board_matches = True
+            for mod_name in modality_names[1:]:
+                if mod_name not in board_solutions:
+                    continue
+                other_sol = board_solutions[mod_name]
+                other_positions = other_sol['positions']
+                other_quality = other_sol['quality']
+                
+                # Compare positions (should be same)
+                if ref_positions != other_positions:
+                    print(f"  Board {board_num}: POSITION MISMATCH!")
+                    print(f"    {ref_mod}: {ref_positions}")
+                    print(f"    {mod_name}: {other_positions}")
+                    board_matches = False
+                    all_boards_same = False
+                
+                # Compare quality (should be same, but allow small floating point differences)
+                quality_diff = abs(ref_quality - other_quality)
+                if quality_diff > 1e-6:
+                    print(f"  Board {board_num}: QUALITY MISMATCH!")
+                    print(f"    {ref_mod}: {ref_quality:.6f}")
+                    print(f"    {mod_name}: {other_quality:.6f}")
+                    print(f"    Difference: {quality_diff:.6f}")
+                    board_matches = False
+                    all_boards_same = False
+                    quality_differences.append({
+                        'board': board_num,
+                        'mod1': ref_mod,
+                        'mod2': mod_name,
+                        'diff': quality_diff
+                    })
+            
+            if board_matches:
+                print(f"  Board {board_num}: ✓ All modalities agree - Positions: {ref_positions}, Quality: {ref_quality:.6f}")
+        
+        print()
+        if all_boards_same:
+            print("✓ All solutions match across all modalities!")
+        else:
+            print("⚠ Some solutions differ between modalities!")
+            if quality_differences:
+                print(f"  Found {len(quality_differences)} quality difference(s)")
+        print()
+        
+        # Calculate speedup
         baseline = results[modalities[0]['name']]
         if baseline['times']:
             baseline_avg = baseline['avg_time']
             
-            print("Speedup relative to 'Feasibility Pruning Only':")
+            print("Speedup relative to first modality:")
             for modality_name, result in results.items():
                 if modality_name != modalities[0]['name'] and result['times']:
                     speedup = baseline_avg / result['avg_time']
@@ -394,6 +346,7 @@ if __name__ == "__main__":
     # Parse command line arguments
     num_boards = 10
     time_limit = 25.0
+    modalities_to_test = None
     
     if len(sys.argv) > 1:
         try:
@@ -407,6 +360,66 @@ if __name__ == "__main__":
         except ValueError:
             print(f"Invalid time limit: {sys.argv[2]}. Using default: 25.0")
     
+    # Parse modality selection (--modalities 0,1,2 or --modalities 0,2)
+    if len(sys.argv) > 3:
+        if sys.argv[3].startswith('--modalities='):
+            mod_str = sys.argv[3].split('=', 1)[1]
+        elif sys.argv[3] == '--modalities' and len(sys.argv) > 4:
+            mod_str = sys.argv[4]
+        else:
+            mod_str = None
+        
+        if mod_str:
+            try:
+                modalities_to_test = [int(x.strip()) for x in mod_str.split(',')]
+                print(f"Selected modalities: {modalities_to_test}")
+                print("  0 = Feasibility Pruning Only")
+                print("  1 = Feasibility + Memo")
+                print("  2 = All Prunings")
+                print()
+            except ValueError:
+                print(f"Invalid modality selection: {mod_str}. Using all modalities.")
+                modalities_to_test = None
+    
+    # Parse additional arguments (players and weights)
+    num_players = 4
+    quality_weights = None
+    
+    for i in range(3, len(sys.argv)):
+        arg = sys.argv[i]
+        if arg.startswith('--players=') or arg.startswith('-p='):
+            try:
+                num_players = int(arg.split('=', 1)[1])
+                if num_players < 2 or num_players > 4:
+                    print(f"Error: Number of players must be between 2 and 4. Got {num_players}")
+                    sys.exit(1)
+            except ValueError:
+                print(f"Error: Invalid number of players: {arg.split('=', 1)[1]}")
+                sys.exit(1)
+        elif arg.startswith('--weights=') or arg.startswith('-w='):
+            try:
+                weights_str = arg.split('=', 1)[1]
+                weights_list = [float(w.strip()) for w in weights_str.split(',')]
+                if len(weights_list) != 3:
+                    print(f"Error: Must provide exactly 3 weights. Got {len(weights_list)}")
+                    sys.exit(1)
+                quality_weights = {
+                    'w_resources': weights_list[0],
+                    'w_expected_cards': weights_list[1],
+                    'w_prob_at_least_one': weights_list[2]
+                }
+                # Normalize weights
+                total = sum(weights_list)
+                if total > 0:
+                    quality_weights['w_resources'] /= total
+                    quality_weights['w_expected_cards'] /= total
+                    quality_weights['w_prob_at_least_one'] /= total
+            except ValueError as e:
+                print(f"Error: Invalid weights format. Expected --weights=w1,w2,w3. Error: {e}")
+                sys.exit(1)
+    
     # Run experiment
-    results = run_experiment(num_boards=num_boards, time_limit=time_limit)
+    results = run_experiment(num_boards=num_boards, time_limit=time_limit, 
+                            modalities_to_test=modalities_to_test,
+                            num_players=num_players, quality_weights=quality_weights)
 

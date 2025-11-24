@@ -11,25 +11,40 @@ from state import State
 from board import Board
 
 
-NUM_PLAYERS = 4
-
-
 class Solver:
     """
     Solver for optimal settlement placement using DFS with backward induction.
     """
     
-    def __init__(self, board: Board, enable_pruning: bool = True):
+    def __init__(self, board: Board, enable_pruning: bool = True,
+                 enable_feasibility: bool = True,
+                 enable_upper_bound: bool = True,
+                 enable_memo: bool = True):
         """
         Initialize solver with a board.
         
         Args:
             board: Board object
-            enable_pruning: If False, disables all pruning for comparison
+            enable_pruning: If False, disables all pruning for comparison (legacy parameter)
+            enable_feasibility: Enable feasibility pruning
+            enable_upper_bound: Enable upper bound pruning
+            enable_memo: Enable memoization
         """
         self.board = board
-        self.memo = {}  # (player, state_key) -> best payoff for this player
-        self.enable_pruning = enable_pruning
+        self.num_players = board.num_players  # Get num_players from board
+        self.memo = {}  # (player, state_key) -> (best_payoff, decisions)
+        # decisions: dict mapping player -> [vertex1, vertex2] for players >= current player
+        
+        # Handle legacy enable_pruning parameter
+        if not enable_pruning:
+            enable_feasibility = False
+            enable_upper_bound = False
+            enable_memo = False
+        
+        self.enable_feasibility = enable_feasibility
+        self.enable_upper_bound = enable_upper_bound
+        self.enable_memo = enable_memo
+        self.enable_pruning = enable_feasibility or enable_upper_bound  # For backward compatibility
         
         # Metrics
         self.recursive_calls = 0
@@ -60,20 +75,47 @@ class Solver:
         self.recursive_calls += 1
         
         # Base case: all players have placed
-        if player > NUM_PLAYERS:
+        if player > self.num_players:
             return state
         
-        # Memoization key
-        state_key = state.make_key()
-        memo_key = (player, state_key)
-        
-        # Check memo
-        if memo_key in self.memo:
-            self.memo_hits += 1
-            # We know the payoff, but we need to return a state
-            # For now, we'll continue to explore (memo can help with pruning)
-        else:
-            self.memo_misses += 1
+        # Memoization (if enabled)
+        memo_key = None
+        if self.enable_memo:
+            # Memoization key - only occupied vertices matter, not who owns them
+            # This allows memo hits when same vertices are occupied by different players
+            occupied_vertices = tuple(sorted([v for v, p in state.occupied.items() if p is not None]))
+            available_vertices = tuple(sorted(state.available_vertices))
+            memo_key = (player, occupied_vertices, available_vertices)
+            
+            # Check memo
+            if memo_key in self.memo:
+                self.memo_hits += 1
+                memoized_payoff, memoized_decisions = self.memo[memo_key]
+                
+                # Reconstruct state from memoized decisions (no recursion needed)
+                # The decisions dict contains: {player: [first_vertex, second_vertex]}
+                # We need to apply them in the correct order: 3, 4, 4, 3 (for player 3)
+                reconstructed_state = state.clone()
+                
+                # Apply decisions in snake order: player, player+1, ..., num_players, num_players, ..., player
+                # First settlements: player, player+1, ..., num_players
+                for p in range(player, self.num_players + 1):
+                    if p in memoized_decisions:
+                        vertices = memoized_decisions[p]
+                        if len(vertices) >= 1:
+                            reconstructed_state.place_settlement(p, vertices[0])
+                
+                # Second settlements: num_players, num_players-1, ..., player (reverse order)
+                for p in range(self.num_players, player - 1, -1):
+                    if p in memoized_decisions:
+                        vertices = memoized_decisions[p]
+                        if len(vertices) >= 2:
+                            reconstructed_state.place_settlement(p, vertices[1])
+                
+                # Return reconstructed state (no recursion needed!)
+                return reconstructed_state
+            else:
+                self.memo_misses += 1
         
         # Local lower bound for this player at this node
         best_value = -float('inf')
@@ -84,7 +126,8 @@ class Solver:
         
         # If no feasible positions, return None
         if not first_candidates:
-            self.memo[memo_key] = -float('inf')
+            if self.enable_memo:
+                self.memo[memo_key] = (-float('inf'), {})
             return None
         
         # Sort candidates by upper bound (or single quality) in descending order
@@ -92,7 +135,7 @@ class Solver:
         # We also cache the UB values to avoid recomputing them
         candidate_ubs = {}  # Cache for upper bounds
         
-        if self.enable_pruning:
+        if self.enable_upper_bound:
             # Sort by upper bound: best candidates first
             candidates_with_ub = []
             for pos in first_candidates:
@@ -121,12 +164,12 @@ class Solver:
         for first_pos in first_candidates:
             # 1. Feasibility pruning (already done, but double-check)
             if not state.is_feasible(player, first_pos):
-                if self.enable_pruning:
+                if self.enable_feasibility:
                     self.feasibility_prunings += 1
                 continue
             
             # 2. Upper bound pruning (use cached value if available)
-            if self.enable_pruning:
+            if self.enable_upper_bound:
                 UB = candidate_ubs.get(first_pos, 
                                       state.upper_bound_for_player_given_first(player, first_pos))
                 if UB <= best_value:
@@ -174,8 +217,16 @@ class Solver:
                 best_value = branch_value
                 best_state_for_player = s_final
         
-        # Store in memo
-        self.memo[memo_key] = best_value
+        # Store in memo with decisions (if memo enabled)
+        if self.enable_memo:
+            # Extract decisions for players >= current player from best_state_for_player
+            decisions = {}
+            if best_state_for_player is not None:
+                for p in range(player, self.num_players + 1):
+                    if p in best_state_for_player.houses and len(best_state_for_player.houses[p]) == 2:
+                        decisions[p] = best_state_for_player.houses[p].copy()
+            
+            self.memo[memo_key] = (best_value, decisions)
         
         return best_state_for_player
     
@@ -198,7 +249,7 @@ class Solver:
         # Start timer
         self.start_time = time.time()
         
-        initial_state = State(self.board)
+        initial_state = State(self.board, num_players=self.num_players)
         final_state = self.dfs(player=1, state=initial_state)
         
         # End timer

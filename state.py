@@ -17,20 +17,22 @@ class State:
     and provides methods for checking feasibility and computing quality.
     """
     
-    def __init__(self, board):
+    def __init__(self, board, num_players: int = 4):
         """
         Initialize an empty state.
         
         Args:
             board: Board object (immutable reference)
+            num_players: Number of players (default: 4)
         """
         self.board = board
+        self.num_players = num_players
         self.houses: Dict[int, List[int]] = {}  # houses[player] = list of vertices
         self.occupied: Dict[int, Optional[int]] = {}  # occupied[vertex] = player or None
         self.available_vertices: Set[int] = set(board.vertices)
         
         # Initialize for all players
-        for player in range(1, 5):
+        for player in range(1, num_players + 1):
             self.houses[player] = []
         
         # Initialize occupied dict
@@ -44,7 +46,7 @@ class State:
         Returns:
             New State object with copied data
         """
-        new_state = State(self.board)
+        new_state = State(self.board, num_players=self.num_players)
         new_state.houses = deepcopy(self.houses)
         new_state.occupied = deepcopy(self.occupied)
         new_state.available_vertices = self.available_vertices.copy()

@@ -17,6 +17,8 @@ def main():
     seed = None
     compare_no_pruning = False
     save_image = None
+    num_players = 4
+    quality_weights = None
     
     if len(sys.argv) > 1:
         for arg in sys.argv[1:]:
@@ -26,11 +28,47 @@ def main():
                 save_image = arg.split("=", 1)[1]
             elif arg.startswith("-s="):
                 save_image = arg.split("=", 1)[1]
+            elif arg.startswith("--players=") or arg.startswith("-p="):
+                try:
+                    num_players = int(arg.split("=", 1)[1])
+                    if num_players < 2 or num_players > 4:
+                        print(f"Error: Number of players must be between 2 and 4. Got {num_players}")
+                        return
+                except ValueError:
+                    print(f"Error: Invalid number of players: {arg.split('=', 1)[1]}")
+                    return
+            elif arg.startswith("--weights=") or arg.startswith("-w="):
+                try:
+                    weights_str = arg.split("=", 1)[1]
+                    weights_list = [float(w.strip()) for w in weights_str.split(",")]
+                    if len(weights_list) != 3:
+                        print(f"Error: Must provide exactly 3 weights (w_resources, w_expected_cards, w_prob_at_least_one). Got {len(weights_list)}")
+                        return
+                    quality_weights = {
+                        'w_resources': weights_list[0],
+                        'w_expected_cards': weights_list[1],
+                        'w_prob_at_least_one': weights_list[2]
+                    }
+                    # Normalize weights (optional, but good practice)
+                    total = sum(weights_list)
+                    if total > 0:
+                        quality_weights['w_resources'] /= total
+                        quality_weights['w_expected_cards'] /= total
+                        quality_weights['w_prob_at_least_one'] /= total
+                except ValueError as e:
+                    print(f"Error: Invalid weights format. Expected --weights=w1,w2,w3. Error: {e}")
+                    return
             elif arg in ["--help", "-h"]:
-                print("Usage: python main.py [seed] [--compare|-c] [--save=path.png]")
+                print("Usage: python main.py [seed] [options]")
                 print("  seed: Optional random seed for reproducibility")
                 print("  --compare, -c: Also run without pruning for comparison")
                 print("  --save=path.png, -s=path.png: Save visualization to file")
+                print("  --players=N, -p=N: Number of players (2-4, default: 4)")
+                print("  --weights=w1,w2,w3, -w=w1,w2,w3: Quality function weights")
+                print("     w1 = weight for resource score")
+                print("     w2 = weight for expected cards")
+                print("     w3 = weight for probability at least one")
+                print("     (weights will be normalized to sum to 1)")
                 return
             else:
                 try:
@@ -40,7 +78,7 @@ def main():
                     return
     
     print("Initializing Catan board...")
-    board = Board(seed=seed)
+    board = Board(seed=seed, num_players=num_players, quality_weights=quality_weights)
     print(f"Board created with {len(board.tiles)} tiles and {len(board.vertices)} vertices")
     print(f"Resources: {[t['resource'] for t in board.tiles]}")
     print()
@@ -75,7 +113,7 @@ def main():
     
     # Display all players' placements
     print("All players' settlements:")
-    for player in range(1, 5):
+    for player in range(1, num_players + 1):
         houses = final_state.houses[player]
         if len(houses) == 2:
             quality = final_state.quality_of_player(player)

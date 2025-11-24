@@ -4,7 +4,7 @@ A solver that finds the optimal initial settlement placement for Catan using dep
 
 ## Overview
 
-This solver implements a sequential game solver for the initial settlement placement phase of Catan with 4 players. Each player places two settlements in snake order (1→2→3→4→4→3→2→1), and the solver finds the optimal placements assuming all players are fully rational and maximize their own two-settlement quality.
+This solver implements a sequential game solver for the initial settlement placement phase of Catan with 2-4 players (configurable). Each player places two settlements in snake order (1→2→3→4→4→3→2→1), and the solver finds the optimal placements assuming all players are fully rational and maximize their own two-settlement quality.
 
 ## Features
 
@@ -28,26 +28,75 @@ No external dependencies required. Uses only Python 3.8+ standard library.
 Run the solver:
 
 ```bash
-python main.py [seed] [--compare|-c] [--save=path.png]
+python main.py [seed] [options]
 ```
 
+**Arguments:**
 - `seed`: Optional random seed for reproducibility
 - `--compare` or `-c`: Also run without pruning for performance comparison
 - `--save=path.png` or `-s=path.png`: Save visualization to file
+- `--players=N` or `-p=N`: Number of players (2-4, default: 4)
+- `--weights=w1,w2,w3` or `-w=w1,w2,w3`: Quality function weights
+  - `w1`: Weight for resource score (default: 1/3)
+  - `w2`: Weight for expected cards (default: 1/3)
+  - `w3`: Weight for probability at least one (default: 1/3)
+  - Weights are automatically normalized to sum to 1
+
+**Examples:**
+
+```bash
+# Default (4 players, equal weights)
+python main.py
+
+# 3 players with custom seed
+python main.py 42 --players=3
+
+# Custom quality weights (50% resources, 30% expected cards, 20% probability)
+python main.py --weights=0.5,0.3,0.2
+
+# 3 players with custom weights and save visualization
+python main.py 42 --players=3 --weights=0.5,0.3,0.2 --save=board.png
+
+# Compare with and without pruning
+python main.py --compare
+```
 
 ### Experimentation
 
 Run experiments comparing different pruning modalities:
 
 ```bash
-python experiment.py [num_boards] [time_limit]
+python experiment.py [num_boards] [time_limit] [options]
 ```
 
+**Arguments:**
 - `num_boards`: Number of boards to test (default: 10)
 - `time_limit`: Maximum time per execution in seconds (default: 25.0)
+- `--modalities=X,Y`: Select specific modalities to test (0, 1, or 2)
+  - `0`: Feasibility Pruning Only
+  - `1`: Feasibility + Memo
+  - `2`: All Prunings (Feasibility + Upper Bound + Memo)
+- `--players=N` or `-p=N`: Number of players (2-4, default: 4)
+- `--weights=w1,w2,w3` or `-w=w1,w2,w3`: Quality function weights
+
+**Examples:**
+
+```bash
+# Default: 10 boards, 25s timeout, all 3 modalities, 4 players
+python experiment.py
+
+# Compare only memo vs all prunings with 1 board and large timeout
+python experiment.py 1 100 --modalities=1,2
+
+# 3 players with custom weights
+python experiment.py 10 25 --players=3 --weights=0.5,0.3,0.2
+
+# Specific modalities in custom order (runs 2 first, then 1)
+python experiment.py 1 100 --modalities=2,1 --players=3
+```
 
 The experiment compares:
-1. Solo Feasibility Pruning
+1. Feasibility Pruning Only
 2. Feasibility + Memo
 3. All Prunings (Feasibility + Upper Bound + Memo)
 
@@ -154,14 +203,22 @@ The quality function combines three components:
 
 Default weights: `w_resources = 1/3`, `w_expected_cards = 1/3`, `w_prob_at_least_one = 1/3`
 
+**Configurable weights**: You can customize the quality function weights via command-line arguments:
+- In `main.py`: `--weights=w1,w2,w3`
+- In `experiment.py`: `--weights=w1,w2,w3`
+
+Weights are automatically normalized to sum to 1, so `--weights=0.5,0.3,0.2` is equivalent to `--weights=5,3,2`.
+
 ## Algorithm
 
 The solver uses a recursive DFS that implements the snake order placement:
 
 1. Player 1 places first settlement
-2. Recursively, players 2, 3, 4 place their first settlements
+2. Recursively, players 2, 3, ... (up to N players) place their first settlements
 3. After recursion unwinds, each player places their second settlement optimally
-4. The recursion structure naturally produces the order: 1→2→3→4→4→3→2→1
+4. The recursion structure naturally produces the order: 1→2→...→N→N→...→2→1
+
+The number of players is configurable (2-4), allowing you to test different game scenarios.
 
 At each node:
 - Get all feasible first positions
@@ -304,19 +361,42 @@ The solver uses:
 - **Branch ordering**: Explores best candidates first to improve LB faster
 - **Memoization**: Caches results for identical game states
 
+## Configuration
+
+### Number of Players
+
+The solver supports 2-4 players. Configure via:
+- `main.py`: `--players=N` or `-p=N`
+- `experiment.py`: `--players=N` or `-p=N`
+
+### Quality Function Weights
+
+Customize the quality function weights to emphasize different aspects:
+- **Higher resource weight**: Prioritizes resource diversity
+- **Higher expected cards weight**: Prioritizes high-probability number tokens
+- **Higher probability weight**: Prioritizes reliability (getting at least one card per turn)
+
+Configure via:
+- `main.py`: `--weights=w1,w2,w3` or `-w=w1,w2,w3`
+- `experiment.py`: `--weights=w1,w2,w3` or `-w=w1,w2,w3`
+
 ## Limitations
 
-- Quality function weights are fixed (could be made configurable)
 - All players use the same quality function (could be extended for player-specific preferences)
 - Timeout in experiments uses threading (may not work perfectly in all environments)
 
+## Repository
+
+This project is available on GitHub:
+- Repository: https://github.com/ericchristenson1/CatanPlacement
+
 ## Future Improvements
 
-- Configurable quality function weights
 - Player-specific quality functions
 - Parallel search for faster execution
 - More sophisticated timeout mechanisms
 - Export experiment results to CSV/JSON
+- Support for more than 4 players
 
 ## License
 
