@@ -300,7 +300,7 @@ This means evaluating a settlement placement is **O(1)** - just a dictionary loo
 2. **Upper Bound Pruning**: For each candidate first settlement, computes maximum achievable quality. If UB ≤ current LB, the entire branch is pruned without exploration
 3. **Local Lower Bound**: Maintained per recursive call, updated as better solutions are found. Enables pruning relative to the best known value at that node
 
-### Memoization
+### Memorization
 
 - Caches results for identical game states (same player, same occupied vertices, same available vertices)
 - Avoids recomputing entire subtrees when the same configuration is reached via different paths
