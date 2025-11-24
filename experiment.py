@@ -179,13 +179,13 @@ def run_experiment(num_boards=10, time_limit=25.0, modalities_to_test=None,
                     'board_num': board_num,
                     'positions': positions,
                     'quality': quality,
-                    'final_state': final_state
+                    'final_state': final_state,
+                    'recursive_calls': solver.recursive_calls
                 })
                 
                 print(f"  Board {board_num}: {elapsed:.4f}s - "
-                      f"Positions: {positions}, Quality: {quality:.4f} - "
-                      f"Recursive calls: {solver.recursive_calls:,}, "
-                      f"Prunings: {solver.feasibility_prunings + solver.upper_bound_prunings:,}")
+                      f"Positions: {positions}, Objective value player one: {quality:.4f} - "
+                      f"Recursive calls: {solver.recursive_calls:,}")
                 
             except Exception as e:
                 print(f"  Board {board_num}: ERROR - {e}")
@@ -201,6 +201,13 @@ def run_experiment(num_boards=10, time_limit=25.0, modalities_to_test=None,
             min_time = float('inf')
             max_time = float('inf')
         
+        # Calculate average recursive calls
+        recursive_calls_list = [sol['recursive_calls'] for sol in solutions]
+        if recursive_calls_list:
+            avg_recursive_calls = sum(recursive_calls_list) / len(recursive_calls_list)
+        else:
+            avg_recursive_calls = 0
+        
         results[modality['name']] = {
             'times': times,
             'avg_time': avg_time,
@@ -209,7 +216,8 @@ def run_experiment(num_boards=10, time_limit=25.0, modalities_to_test=None,
             'timeouts': timeouts,
             'successful': successful,
             'total': num_boards,
-            'solutions': solutions  # Store solutions for comparison
+            'solutions': solutions,  # Store solutions for comparison
+            'avg_recursive_calls': avg_recursive_calls
         }
         
         print(f"\n  Summary:")
@@ -228,8 +236,8 @@ def run_experiment(num_boards=10, time_limit=25.0, modalities_to_test=None,
     print("=" * 80)
     print()
     
-    print(f"{'Modality':<50} {'Average (s)':<15} {'Min (s)':<12} {'Max (s)':<12} {'Timeouts':<10} {'Successful':<10}")
-    print("-" * 110)
+    print(f"{'Modality':<50} {'Average (s)':<15} {'Min (s)':<12} {'Max (s)':<12} {'Timeouts':<10} {'Successful':<10} {'Recursive Calls':<20}")
+    print("-" * 130)
     
     for modality_name, result in results.items():
         if result['times']:
@@ -241,8 +249,10 @@ def run_experiment(num_boards=10, time_limit=25.0, modalities_to_test=None,
             min_str = "N/A"
             max_str = "N/A"
         
+        recursive_calls_str = f"{result['avg_recursive_calls']:,.0f}" if result['avg_recursive_calls'] > 0 else "N/A"
+        
         print(f"{modality_name:<50} {avg_str:<15} {min_str:<12} {max_str:<12} "
-              f"{result['timeouts']:<10} {result['successful']:<10}")
+              f"{result['timeouts']:<10} {result['successful']:<10} {recursive_calls_str:<20}")
     
     print()
     
@@ -300,10 +310,10 @@ def run_experiment(num_boards=10, time_limit=25.0, modalities_to_test=None,
                     board_matches = False
                     all_boards_same = False
                 
-                # Compare quality (should be same, but allow small floating point differences)
+                # Compare objective value (should be same, but allow small floating point differences)
                 quality_diff = abs(ref_quality - other_quality)
                 if quality_diff > 1e-6:
-                    print(f"  Board {board_num}: QUALITY MISMATCH!")
+                    print(f"  Board {board_num}: OBJECTIVE VALUE MISMATCH!")
                     print(f"    {ref_mod}: {ref_quality:.6f}")
                     print(f"    {mod_name}: {other_quality:.6f}")
                     print(f"    Difference: {quality_diff:.6f}")
@@ -317,7 +327,7 @@ def run_experiment(num_boards=10, time_limit=25.0, modalities_to_test=None,
                     })
             
             if board_matches:
-                print(f"  Board {board_num}: ✓ All modalities agree - Positions: {ref_positions}, Quality: {ref_quality:.6f}")
+                print(f"  Board {board_num}: ✓ All modalities agree - Positions: {ref_positions}, Objective value player one: {ref_quality:.6f}")
         
         print()
         if all_boards_same:
@@ -325,7 +335,7 @@ def run_experiment(num_boards=10, time_limit=25.0, modalities_to_test=None,
         else:
             print("⚠ Some solutions differ between modalities!")
             if quality_differences:
-                print(f"  Found {len(quality_differences)} quality difference(s)")
+                print(f"  Found {len(quality_differences)} objective value difference(s)")
         print()
         
         # Calculate speedup

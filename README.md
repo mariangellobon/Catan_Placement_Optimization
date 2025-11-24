@@ -33,10 +33,9 @@ python main.py [seed] [options]
 
 **Arguments:**
 - `seed`: Optional random seed for reproducibility
-- `--compare` or `-c`: Also run without pruning for performance comparison
 - `--save=path.png` or `-s=path.png`: Save visualization to file
 - `--players=N` or `-p=N`: Number of players (2-4, default: 4)
-- `--weights=w1,w2,w3` or `-w=w1,w2,w3`: Quality function weights
+- `--weights=w1,w2,w3` or `-w=w1,w2,w3`: Objetive function weights
   - `w1`: Weight for resource score (default: 1/3)
   - `w2`: Weight for expected cards (default: 1/3)
   - `w3`: Weight for probability at least one (default: 1/3)
@@ -57,8 +56,6 @@ python main.py --weights=0.5,0.3,0.2
 # 3 players with custom weights and save visualization
 python main.py 42 --players=3 --weights=0.5,0.3,0.2 --save=board.png
 
-# Compare with and without pruning
-python main.py --compare
 ```
 
 ### Experimentation
@@ -224,11 +221,12 @@ At each node:
 - Get all feasible first positions
 - **Sort candidates by upper bound/quality** (best first) to establish strong LB early
 - For each position:
-  - Compute upper bound and prune if UB ≤ local LB (enabled by strong LB)
-  - Place first settlement and recurse on later players
-  - After recursion, choose best second position using precomputed `pair_quality`
+  - **Compute upper bound BEFORE branching**: For the candidate first position, calculate the maximum quality achievable if the player could place both settlements optimally without other players interfering (relaxation). This is done by finding the maximum `pair_quality(first_pos, second_pos)` over all currently feasible second positions.
+  - **Prune if UB ≤ LB**: If the upper bound is less than or equal to the best value (LB) found so far at this node, prune the entire branch without exploring it recursively. This is safe because even in the optimistic scenario (no interference), this branch cannot improve the solution.
+  - If not pruned: Place first settlement and recurse on later players
+  - After recursion unwinds, choose best second position using precomputed `pair_quality`
 - Update local best value (LB) as better solutions are found
-- Strong LB enables more pruning in subsequent iterations
+- Strong LB (from exploring good candidates first) enables more pruning in subsequent iterations
 
 ## Performance Metrics
 
@@ -297,8 +295,16 @@ This means evaluating a settlement placement is **O(1)** - just a dictionary loo
 ### Pruning Techniques
 
 1. **Feasibility Pruning**: Skips moves violating Catan rules (distance, occupancy) - eliminates invalid branches immediately
-2. **Upper Bound Pruning**: For each candidate first settlement, computes maximum achievable quality. If UB ≤ current LB, the entire branch is pruned without exploration
-3. **Local Lower Bound**: Maintained per recursive call, updated as better solutions are found. Enables pruning relative to the best known value at that node
+
+2. **Upper Bound (UB) Pruning**: 
+   - **Calculation**: Before exploring a branch (before recursion), for each candidate first settlement position, the solver computes an upper bound on the maximum quality the player could achieve.
+   - **Intuition**: The UB is a **relaxation** that assumes the player could place both settlements optimally **without other players restricting their choices**. Specifically:
+     - Given a first settlement at position `v1`, the UB is the maximum `pair_quality(v1, v2)` over all currently feasible positions `v2` for the second settlement
+     - This ignores that future players may take some of these positions, making it an optimistic (upper) bound
+   - **Pruning logic**: If `UB ≤ LB` (where LB is the best value found so far for this player at this node), the entire branch is pruned without exploration, because even in the best-case scenario (no other players interfering), this branch cannot beat the current best solution
+   - **Effectiveness**: This is particularly powerful when combined with branch ordering, as exploring good candidates first establishes a strong LB early, enabling more aggressive pruning of remaining branches
+
+3. **Local Lower Bound (LB)**: Maintained per recursive call, updated as better solutions are found. Enables pruning relative to the best known value at that node
 
 ### Memorization
 

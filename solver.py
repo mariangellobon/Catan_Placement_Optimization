@@ -10,6 +10,9 @@ from typing import Optional, Tuple
 from state import State
 from board import Board
 
+# Epsilon for floating point comparisons to avoid rounding errors
+EPSILON = 1e-6
+
 
 class Solver:
     """
@@ -130,35 +133,27 @@ class Solver:
                 self.memo[memo_key] = (-float('inf'), {})
             return None
         
-        # Sort candidates by upper bound (or single quality) in descending order
+        # Always sort candidates by individual quality in descending order
         # This helps improve LB faster, enabling more pruning
-        # We also cache the UB values to avoid recomputing them
+        # We also cache the UB values if upper bound pruning is enabled
         candidate_ubs = {}  # Cache for upper bounds
         
-        if self.enable_upper_bound:
-            # Sort by upper bound: best candidates first
-            candidates_with_ub = []
-            for pos in first_candidates:
-                if state.is_feasible(player, pos):
+        # Sort by individual quality: best candidates first
+        # This is consistent across all modalities and helps establish strong LB early
+        candidates_with_quality = []
+        for pos in first_candidates:
+            if state.is_feasible(player, pos):
+                quality = state.board.single_quality.get(pos, 0.0)
+                candidates_with_quality.append((quality, pos))
+                
+                # If upper bound pruning is enabled, also compute and cache UB
+                if self.enable_upper_bound:
                     ub = state.upper_bound_for_player_given_first(player, pos)
                     candidate_ubs[pos] = ub
-                    candidates_with_ub.append((ub, pos))
-            
-            # Sort by upper bound descending (best first)
-            candidates_with_ub.sort(reverse=True, key=lambda x: x[0])
-            first_candidates = [pos for _, pos in candidates_with_ub]
-        else:
-            # Without pruning, we can still sort by single quality for better LB
-            # This is a cheaper approximation
-            candidates_with_quality = []
-            for pos in first_candidates:
-                if state.is_feasible(player, pos):
-                    quality = state.board.single_quality.get(pos, 0.0)
-                    candidates_with_quality.append((quality, pos))
-            
-            # Sort by quality descending (best first)
-            candidates_with_quality.sort(reverse=True, key=lambda x: x[0])
-            first_candidates = [pos for _, pos in candidates_with_quality]
+        
+        # Sort by quality descending (best first)
+        candidates_with_quality.sort(reverse=True, key=lambda x: x[0])
+        first_candidates = [pos for _, pos in candidates_with_quality]
         
         # Try each feasible first position (now sorted by quality/UB)
         for first_pos in first_candidates:
@@ -172,7 +167,8 @@ class Solver:
             if self.enable_upper_bound:
                 UB = candidate_ubs.get(first_pos, 
                                       state.upper_bound_for_player_given_first(player, first_pos))
-                if UB <= best_value:
+                # Use epsilon to avoid rounding errors: only prune if UB + epsilon still can't beat best_value
+                if UB + EPSILON <= best_value:
                     # This branch cannot beat the best known value for this player
                     self.upper_bound_prunings += 1
                     continue
@@ -302,18 +298,10 @@ class Solver:
         print(f"Recursive calls: {metrics['recursive_calls']:,}")
         print()
         print("Pruning statistics:")
-        print(f"  Feasibility prunings: {metrics['feasibility_prunings']:,}")
         print(f"  Upper bound prunings: {metrics['upper_bound_prunings']:,}")
-        print(f"  Total prunings: {metrics['total_prunings']:,}")
-        if metrics['recursive_calls'] > 0:
-            pruning_rate = metrics['total_prunings'] / metrics['recursive_calls'] * 100
-            print(f"  Pruning rate: {pruning_rate:.2f}%")
         print()
         print("Memoization statistics:")
         print(f"  Memo hits: {metrics['memo_hits']:,}")
-        print(f"  Memo misses: {metrics['memo_misses']:,}")
         print(f"  Memo size: {metrics['memo_size']:,}")
-        if metrics['memo_hits'] + metrics['memo_misses'] > 0:
-            print(f"  Hit rate: {metrics['memo_hit_rate']:.2%}")
         print()
 

@@ -108,7 +108,7 @@ def main():
     print()
     
     print(f"Player 1 optimal positions: {player1_positions}")
-    print(f"Player 1 quality score: {player1_quality:.4f}")
+    print(f"Player 1  objetive value: {player1_quality:.4f}")
     print()
     
     # Display all players' placements
@@ -117,7 +117,7 @@ def main():
         houses = final_state.houses[player]
         if len(houses) == 2:
             quality = final_state.quality_of_player(player)
-            print(f"  Player {player}: vertices {houses}, quality: {quality:.4f}")
+            print(f"  Player {player}: vertices {houses}, objective value: {quality:.4f}")
         else:
             print(f"  Player {player}: vertices {houses} (incomplete)")
     print()
@@ -125,27 +125,16 @@ def main():
     # Display metrics
     solver.print_metrics()
     
-    # Visualize the board (console)
-    print("\n")
-    visualize_board(board, final_state)
-    print("\n")
-    visualize_settlements_simple(board, final_state)
-    
     # Visualize the board (GUI)
     print("\nGenerating graphical visualization...")
     try:
         visualize_board_gui(board, final_state, save_path=save_image)
-        if save_image:
-            print(f"Graphical visualization saved to {save_image}")
-        else:
-            print("Graphical visualization displayed.")
     except ImportError:
         print("Warning: matplotlib not available. Install with: pip install matplotlib")
     except Exception as e:
         print(f"Error generating GUI visualization: {e}")
         import traceback
         traceback.print_exc()
-        print("Falling back to console visualization only.")
     
     # Run without pruning for comparison
     if compare_no_pruning:
